@@ -1,5 +1,5 @@
 package auth
 
-type Principle struct {
+type Principal struct {
 	Id string
 }

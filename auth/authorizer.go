@@ -8,17 +8,17 @@ import (
 )
 
 type Authorizer interface {
-	Authorize(req *http.Request) (*Principle, error)
+	Authorize(req *http.Request) (*Principal, error)
 }
 
 type NoOpAuthenticator struct{}
 
-func (n *NoOpAuthenticator) Authorize(_ *http.Request) (*Principle, error) {
+func (n *NoOpAuthenticator) Authorize(_ *http.Request) (*Principal, error) {
 	return nil, errors.New("unimplemented yet")
 }
 
 type DummyAuthenticator struct{}
 
-func (d *DummyAuthenticator) Authorize(_ *http.Request) (*Principle, error) {
-	return &Principle{Id: strconv.Itoa(rand.Int())}, nil
+func (d *DummyAuthenticator) Authorize(_ *http.Request) (*Principal, error) {
+	return &Principal{Id: strconv.Itoa(rand.Int())}, nil
 }

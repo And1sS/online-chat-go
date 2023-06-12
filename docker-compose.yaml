@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+  chat-postgresql:
+    image: postgres:14.2
+    volumes:
+      - ~/volumes/online-chat-go/postgresql/:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=online-chat
+      - POSTGRES_PASSWORD=jumanji
+      - POSTGRES_DB=online-chat
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    ports:
+      - "5432:5432"
