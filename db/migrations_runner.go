@@ -13,15 +13,15 @@ func RunMigrations(fs fs.FS, path string, dbUrl string) error {
 		return err
 	}
 
-	runner, err := migrate.NewWithSourceInstance("iofs", driver, dbUrl)
+	migrator, err := migrate.NewWithSourceInstance("iofs", driver, dbUrl)
 	if err != nil {
 		return err
 	}
 
-	err = runner.Up()
-	if err != nil {
+	err = migrator.Up()
+	if err == migrate.ErrNoChange {
+		return nil // Nothing has changed, treat as no error
+	} else {
 		return err
 	}
-
-	return nil
 }

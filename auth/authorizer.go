@@ -11,14 +11,14 @@ type Authorizer interface {
 	Authorize(req *http.Request) (*Principal, error)
 }
 
-type NoOpAuthenticator struct{}
+type NoOpAuthorizer struct{}
 
-func (n *NoOpAuthenticator) Authorize(_ *http.Request) (*Principal, error) {
+func (n *NoOpAuthorizer) Authorize(_ *http.Request) (*Principal, error) {
 	return nil, errors.New("unimplemented yet")
 }
 
-type DummyAuthenticator struct{}
+type DummyAuthorizer struct{}
 
-func (d *DummyAuthenticator) Authorize(_ *http.Request) (*Principal, error) {
+func (d *DummyAuthorizer) Authorize(_ *http.Request) (*Principal, error) {
 	return &Principal{Id: strconv.Itoa(rand.Int())}, nil
 }
