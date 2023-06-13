@@ -28,13 +28,13 @@ func NewWsHandler(wss *WSConnections, authorizer auth.Authorizer) func(w http.Re
 		}
 
 		connId := principle.Id
-		wsconn := NewWsConnection(conn)
+		wsconn := NewWsConnection(conn, defaultWsConfig)
 		wss.AddConnection(connId, wsconn)
 
 		go func() {
 			for {
 				select {
-				case <-wsconn.ClosePump():
+				case <-wsconn.Done():
 					_ = wss.RemoveConnection(connId, wsconn)
 					return
 				case msg := <-wsconn.ReadPump():

@@ -11,10 +11,23 @@ type WsMessage struct {
 	Data []byte
 }
 
+type WsConfig struct {
+	Timeout      time.Duration
+	PingInterval time.Duration
+	ReadLimit    int64
+}
+
+var defaultWsConfig = WsConfig{
+	Timeout:      10 * time.Second,
+	PingInterval: 1 * time.Second,
+	ReadLimit:    1024 * 64,
+}
+
 type wsConnection struct {
 	writePump chan WsMessage
 	readPump  chan WsMessage
-	closePump chan bool
+	done      chan bool
+	config    WsConfig
 	conn      *websocket.Conn
 }
 
@@ -23,7 +36,7 @@ type WSConnection interface {
 
 	ReadPump() <-chan WsMessage
 
-	ClosePump() <-chan bool
+	Done() <-chan bool
 
 	Close() error
 }
@@ -37,48 +50,66 @@ func (wsc *wsConnection) ReadPump() <-chan WsMessage {
 }
 
 func (wsc *wsConnection) Close() error {
-	err := wsc.conn.Close()
-	wsc.closePump <- true
-	return err
+	select {
+	case <-wsc.done:
+		return nil
+
+	default:
+		close(wsc.done)
+		return wsc.conn.Close()
+	}
 }
 
-func (wsc *wsConnection) ClosePump() <-chan bool {
-	return wsc.closePump
+func (wsc *wsConnection) Done() <-chan bool {
+	return wsc.done
 }
 
 func (wsc *wsConnection) runWriter() {
-	ticker := time.NewTicker(time.Second * 1)
+	ticker := time.NewTicker(wsc.config.PingInterval)
 	defer func() {
 		ticker.Stop()
-		wsc.Close()
+		_ = wsc.Close()
 	}()
 
 	for {
 		select {
+		case <-wsc.done:
+			return
+
 		case msg := <-wsc.writePump:
-			log.Println("message written: ", msg)
-			wsc.conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
-			_ = wsc.conn.WriteMessage(msg.Type, msg.Data)
-		case <-wsc.closePump:
-			log.Println("writer closed")
-			break
+			err := wsc.writeWithDeadline(msg.Type, msg.Data)
+			if err != nil {
+				return
+			}
+
 		case <-ticker.C:
-			wsc.conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
-			if err := wsc.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				break
+			err := wsc.writeWithDeadline(websocket.PingMessage, []byte{})
+			if err != nil {
+				return
 			}
 		}
 	}
 }
 
+func (wsc *wsConnection) writeWithDeadline(msgType int, msgData []byte) error {
+	_ = wsc.conn.SetWriteDeadline(time.Now().Add(wsc.config.Timeout))
+	err := wsc.conn.WriteMessage(msgType, msgData)
+	if err != nil {
+		_ = wsc.Close()
+	}
+
+	return err
+}
+
 func (wsc *wsConnection) runReader() {
-	wsc.conn.SetReadLimit(1024)
-	_ = wsc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
-	wsc.conn.SetPongHandler(func(string) error {
-		_ = wsc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
-		log.Println("PONG RECEIVED")
+	wsc.conn.SetReadLimit(wsc.config.ReadLimit)
+	_ = wsc.conn.SetReadDeadline(time.Now().Add(wsc.config.Timeout))
+
+	pongHandler := func(string) error {
+		_ = wsc.conn.SetReadDeadline(time.Now().Add(wsc.config.Timeout))
 		return nil
-	})
+	}
+	wsc.conn.SetPongHandler(pongHandler)
 
 	for {
 		msgType, msgData, err := wsc.conn.ReadMessage()
@@ -86,7 +117,6 @@ func (wsc *wsConnection) runReader() {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("error: %v", err)
 			}
-			log.Println("connection closed with error: ", err)
 			_ = wsc.Close()
 			return
 		}
@@ -94,12 +124,13 @@ func (wsc *wsConnection) runReader() {
 	}
 }
 
-func NewWsConnection(conn *websocket.Conn) WSConnection {
+func NewWsConnection(conn *websocket.Conn, config WsConfig) WSConnection {
 	wsc := &wsConnection{
 		conn:      conn,
+		config:    config,
 		writePump: make(chan WsMessage, 256),
 		readPump:  make(chan WsMessage, 256),
-		closePump: make(chan bool),
+		done:      make(chan bool),
 	}
 	go wsc.runWriter()
 	go wsc.runReader()
