@@ -28,22 +28,19 @@ func NewWsHandler(wss *WSConnections, authorizer auth.Authorizer) func(w http.Re
 		}
 
 		connId := principle.Id
-		wsconn := NewWsConnection(conn, messageHandler(connId), connectionCloseHandler(wss, connId))
+		wsconn := NewWsConnection(conn)
 		wss.AddConnection(connId, wsconn)
-	}
-}
 
-func connectionCloseHandler(wss *WSConnections, id string) func(wsc *WSConnection, err error) {
-	return func(wsc *WSConnection, err error) {
-		if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-			log.Printf("Unexpected error: %v", err)
-		}
-		_ = wss.RemoveConnection(id, wsc)
-	}
-}
-
-func messageHandler(id string) func(messageType int, data []byte) {
-	return func(messageType int, data []byte) {
-		log.Printf("New message arrived from user: %s, msg: %s", id, data)
+		go func() {
+			for {
+				select {
+				case <-wsconn.ClosePump():
+					_ = wss.RemoveConnection(connId, wsconn)
+					return
+				case msg := <-wsconn.ReadPump():
+					log.Println("NEW MESSAGE FROM: %s, MSG: %s", connId, msg)
+				}
+			}
+		}()
 	}
 }

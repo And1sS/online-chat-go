@@ -1,177 +1,107 @@
 package websocket
 
 import (
-	"fmt"
 	"github.com/gorilla/websocket"
-	"online-chat-go/util"
-	"sync"
-	"sync/atomic"
+	"log"
+	"time"
 )
 
-type WSError struct {
-	msg string
+type WsMessage struct {
+	Type int
+	Data []byte
 }
 
-func (err WSError) Error() string {
-	return err.msg
+type wsConnection struct {
+	writePump chan WsMessage
+	readPump  chan WsMessage
+	closePump chan bool
+	conn      *websocket.Conn
 }
 
-type WSConnections struct {
-	connections map[string]*userWsConnections
-	mut         *sync.RWMutex
+type WSConnection interface {
+	WritePump() chan<- WsMessage
+
+	ReadPump() <-chan WsMessage
+
+	ClosePump() <-chan bool
+
+	Close() error
 }
 
-func NewWSConnections() *WSConnections {
-	conn := make(map[string]*userWsConnections)
-	return &WSConnections{
-		connections: conn,
-		mut:         &sync.RWMutex{},
-	}
+func (wsc *wsConnection) WritePump() chan<- WsMessage {
+	return wsc.writePump
 }
 
-func (wss *WSConnections) AddConnection(id string, conn *WSConnection) {
-	var userConns *userWsConnections
-	var ok bool
-
-	wss.mut.Lock()
-	if conn.closed.Load() {
-		wss.mut.Unlock()
-		return
-	}
-
-	if userConns, ok = wss.connections[id]; !ok {
-		userConns = newUserWsSessions(1)
-		wss.connections[id] = userConns
-	}
-	wss.mut.Unlock()
-
-	userConns.AddConnection(conn)
+func (wsc *wsConnection) ReadPump() <-chan WsMessage {
+	return wsc.readPump
 }
 
-func (wss *WSConnections) RemoveConnection(id string, conn *WSConnection) error {
-	var userConns *userWsConnections
-	var ok bool
-
-	wss.mut.Lock()
-	userConns, ok = wss.connections[id]
-	wss.mut.Unlock()
-
-	// TODO: think about some sort of removal of empty user connections holders
-	if ok {
-		return userConns.RemoveConnection(conn)
-	} else {
-		return &WSError{fmt.Sprintf("No connections for id: %s", id)}
-	}
+func (wsc *wsConnection) Close() error {
+	err := wsc.conn.Close()
+	wsc.closePump <- true
+	return err
 }
 
-func (wss *WSConnections) SendTextMessage(id string, msg string) []error {
-	return wss.SendMessage(id, []byte(msg), websocket.TextMessage)
+func (wsc *wsConnection) ClosePump() <-chan bool {
+	return wsc.closePump
 }
 
-func (wss *WSConnections) SendBinaryMessage(id string, msg []byte) []error {
-	return wss.SendMessage(id, msg, websocket.BinaryMessage)
-}
+func (wsc *wsConnection) runWriter() {
+	ticker := time.NewTicker(time.Second * 1)
+	defer func() {
+		ticker.Stop()
+		wsc.Close()
+	}()
 
-func (wss *WSConnections) SendMessage(id string, msg []byte, messageType int) []error {
-	wss.mut.RLock()
-	userConns, ok := wss.connections[id]
-	wss.mut.RUnlock()
-
-	if !ok {
-		return []error{&WSError{fmt.Sprintf("No connections for id: %s", id)}}
-	}
-
-	return userConns.ForAllConnections(
-		func(wsConnection *WSConnection) error {
-			return wsConnection.conn.WriteMessage(messageType, msg)
-		},
-	)
-}
-
-// internal holder struct for all opened ws connections of particular user
-type userWsConnections struct {
-	connections *[]*WSConnection
-	mut         *sync.RWMutex
-}
-
-func newUserWsSessions(initialCapacity int) *userWsConnections {
-	s := make([]*WSConnection, 0, initialCapacity)
-	return &userWsConnections{
-		connections: &s,
-		mut:         &sync.RWMutex{},
-	}
-}
-
-// AddConnection Does not perform contains check for speed, so same connection should not be added multiple times
-func (u *userWsConnections) AddConnection(conn *WSConnection) {
-	u.mut.Lock()
-	defer u.mut.Unlock()
-
-	us := append(*u.connections, conn)
-	u.connections = &us
-}
-
-func (u *userWsConnections) RemoveConnection(conn *WSConnection) error {
-	u.mut.Lock()
-	defer u.mut.Unlock()
-
-	return util.RemoveSwapElem(u.connections, conn)
-}
-
-func (u *userWsConnections) ForAllConnections(block func(conn *WSConnection) error) []error {
-	u.mut.RLock()
-	defer u.mut.RUnlock()
-
-	var errors []error
-
-	for _, connection := range *u.connections {
-		err := block(connection)
-		if err != nil {
-			errors = append(errors, err)
-		}
-	}
-
-	return errors
-}
-
-type WSConnection struct {
-	conn               *websocket.Conn
-	closed             atomic.Bool
-	onMessageReceived  func(msgType int, data []byte)
-	onConnectionClosed func(wsc *WSConnection, err error)
-}
-
-func NewWsConnection(
-	conn *websocket.Conn,
-	onMessageReceived func(msgType int, data []byte),
-	onConnectionClosed func(wsc *WSConnection, err error),
-) *WSConnection {
-	wsc := &WSConnection{
-		conn:               conn,
-		closed:             atomic.Bool{},
-		onMessageReceived:  onMessageReceived,
-		onConnectionClosed: onConnectionClosed,
-	}
-	wsc.startMessageReader()
-	return wsc
-}
-
-func (wsc *WSConnection) startMessageReader() {
-	go func() {
-		for {
-			messageType, data, err := wsc.conn.ReadMessage()
-
-			if err != nil {
-				wsc.closed.Store(true)
-				if wsc.onConnectionClosed != nil {
-					wsc.onConnectionClosed(wsc, err)
-				}
+	for {
+		select {
+		case msg := <-wsc.writePump:
+			log.Println("message written: ", msg)
+			wsc.conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
+			_ = wsc.conn.WriteMessage(msg.Type, msg.Data)
+		case <-wsc.closePump:
+			log.Println("writer closed")
+			break
+		case <-ticker.C:
+			wsc.conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
+			if err := wsc.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 				break
 			}
-
-			if wsc.onMessageReceived != nil {
-				wsc.onMessageReceived(messageType, data)
-			}
 		}
-	}()
+	}
+}
+
+func (wsc *wsConnection) runReader() {
+	wsc.conn.SetReadLimit(1024)
+	_ = wsc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
+	wsc.conn.SetPongHandler(func(string) error {
+		_ = wsc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
+		log.Println("PONG RECEIVED")
+		return nil
+	})
+
+	for {
+		msgType, msgData, err := wsc.conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("error: %v", err)
+			}
+			log.Println("connection closed with error: ", err)
+			_ = wsc.Close()
+			return
+		}
+		wsc.readPump <- WsMessage{Type: msgType, Data: msgData}
+	}
+}
+
+func NewWsConnection(conn *websocket.Conn) WSConnection {
+	wsc := &wsConnection{
+		conn:      conn,
+		writePump: make(chan WsMessage, 256),
+		readPump:  make(chan WsMessage, 256),
+		closePump: make(chan bool),
+	}
+	go wsc.runWriter()
+	go wsc.runReader()
+	return wsc
 }
