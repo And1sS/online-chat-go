@@ -15,20 +15,20 @@ func (err WSError) Error() string {
 	return err.msg
 }
 
-type WSConnections struct {
+type WSServer struct {
 	connections map[string]*userWsConnections
 	mut         *sync.RWMutex
 }
 
-func NewWSConnections() *WSConnections {
+func NewWSServer() *WSServer {
 	conn := make(map[string]*userWsConnections)
-	return &WSConnections{
+	return &WSServer{
 		connections: conn,
 		mut:         &sync.RWMutex{},
 	}
 }
 
-func (wss *WSConnections) AddConnection(id string, conn WSConnection) {
+func (wss *WSServer) AddConnection(id string, conn WSConnection) {
 	var userConns *userWsConnections
 	var ok bool
 
@@ -42,31 +42,33 @@ func (wss *WSConnections) AddConnection(id string, conn WSConnection) {
 	userConns.AddConnection(conn)
 }
 
-func (wss *WSConnections) RemoveConnection(id string, conn WSConnection) error {
-	var userConns *userWsConnections
-	var ok bool
+func (wss *WSServer) RemoveConnection(id string, conn WSConnection) error {
+	wss.mut.Lock()
+	defer wss.mut.Unlock()
 
-	wss.mut.RLock()
-	userConns, ok = wss.connections[id]
-	wss.mut.RUnlock()
+	userConns, ok := wss.connections[id]
 
 	if ok {
-		// TODO: Implement removal of holder from map
-		return userConns.RemoveConnection(conn)
+		remaining, err := userConns.RemoveConnection(conn)
+		if remaining <= 0 {
+			delete(wss.connections, id)
+		}
+
+		return err
 	} else {
 		return &WSError{fmt.Sprintf("No connections for id: %s", id)}
 	}
 }
 
-func (wss *WSConnections) SendTextMessage(id string, msg string) error {
+func (wss *WSServer) SendTextMessage(id string, msg string) error {
 	return wss.SendMessage(id, []byte(msg), websocket.TextMessage)
 }
 
-func (wss *WSConnections) SendBinaryMessage(id string, msg []byte) error {
+func (wss *WSServer) SendBinaryMessage(id string, msg []byte) error {
 	return wss.SendMessage(id, msg, websocket.BinaryMessage)
 }
 
-func (wss *WSConnections) SendMessage(id string, msgData []byte, msgType int) error {
+func (wss *WSServer) SendMessage(id string, msgData []byte, msgType int) error {
 	wss.mut.RLock()
 	userConns, ok := wss.connections[id]
 	wss.mut.RUnlock()
@@ -80,9 +82,8 @@ func (wss *WSConnections) SendMessage(id string, msgData []byte, msgType int) er
 			select {
 			case <-conn.Done():
 				return
-
-			default:
-				conn.WritePump() <- WsMessage{Type: msgType, Data: msgData}
+			case conn.WritePump() <- WsMessage{Type: msgType, Data: msgData}:
+				return
 			}
 		},
 	)
@@ -113,11 +114,12 @@ func (u *userWsConnections) AddConnection(conn WSConnection) {
 	u.connections = &us
 }
 
-func (u *userWsConnections) RemoveConnection(conn WSConnection) error {
+func (u *userWsConnections) RemoveConnection(conn WSConnection) (int, error) {
 	u.mut.Lock()
 	defer u.mut.Unlock()
 
-	return util.RemoveSwapElem(u.connections, conn)
+	err := util.RemoveSwapElem(u.connections, conn)
+	return len(*u.connections), err
 }
 
 func (u *userWsConnections) ForAllConnections(block func(conn WSConnection)) {

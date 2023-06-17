@@ -25,12 +25,12 @@ var defaultWsConfig = WsConfig{
 }
 
 type wsConnection struct {
-	writePump    chan WsMessage
-	readPump     chan WsMessage
-	closingGuard *sync.Mutex // to prevent multiple goroutines closing done channel
-	done         chan bool
-	config       WsConfig
-	conn         *websocket.Conn
+	writePump chan WsMessage
+	readPump  chan WsMessage
+	mut       *sync.Mutex // to prevent multiple goroutines closing done channel
+	done      chan bool
+	config    WsConfig
+	conn      *websocket.Conn
 }
 
 type WSConnection interface {
@@ -52,8 +52,8 @@ func (wsc *wsConnection) ReadPump() <-chan WsMessage {
 }
 
 func (wsc *wsConnection) Close() error {
-	wsc.closingGuard.Lock()
-	defer wsc.closingGuard.Unlock()
+	wsc.mut.Lock()
+	defer wsc.mut.Unlock()
 
 	select {
 	case <-wsc.done:
@@ -134,12 +134,12 @@ func (wsc *wsConnection) setUp() {
 
 func NewWsConnection(conn *websocket.Conn, config WsConfig) WSConnection {
 	wsc := &wsConnection{
-		conn:         conn,
-		config:       config,
-		writePump:    make(chan WsMessage, 256),
-		readPump:     make(chan WsMessage, 256),
-		closingGuard: &sync.Mutex{},
-		done:         make(chan bool),
+		conn:      conn,
+		config:    config,
+		writePump: make(chan WsMessage, 256),
+		readPump:  make(chan WsMessage, 256),
+		mut:       &sync.Mutex{},
+		done:      make(chan bool),
 	}
 
 	wsc.setUp()
