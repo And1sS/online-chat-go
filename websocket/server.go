@@ -16,8 +16,10 @@ func (err WSError) Error() string {
 }
 
 type WSServer struct {
-	connections map[string]*userWsConnections
-	mut         *sync.RWMutex
+	connections        map[string]*userWsConnections
+	mut                *sync.RWMutex
+	onUserConnected    func(id string)
+	onUserDisconnected func(id string)
 }
 
 func NewWSServer() *WSServer {
@@ -28,6 +30,20 @@ func NewWSServer() *WSServer {
 	}
 }
 
+func (wss *WSServer) SetOnUserConnected(callback func(id string)) {
+	wss.mut.Lock()
+	defer wss.mut.Unlock()
+
+	wss.onUserConnected = callback
+}
+
+func (wss *WSServer) SetOnUserDisconnected(callback func(id string)) {
+	wss.mut.Lock()
+	defer wss.mut.Unlock()
+
+	wss.onUserDisconnected = callback
+}
+
 func (wss *WSServer) AddConnection(id string, conn WSConnection) {
 	var userConns *userWsConnections
 	var ok bool
@@ -35,6 +51,9 @@ func (wss *WSServer) AddConnection(id string, conn WSConnection) {
 	wss.mut.Lock()
 	if userConns, ok = wss.connections[id]; !ok {
 		userConns = newUserWsSessions(1)
+		if wss.onUserConnected != nil {
+			go wss.onUserConnected(id)
+		}
 		wss.connections[id] = userConns
 	}
 	wss.mut.Unlock()
@@ -51,6 +70,9 @@ func (wss *WSServer) RemoveConnection(id string, conn WSConnection) error {
 	if ok {
 		remaining, err := userConns.RemoveConnection(conn)
 		if remaining <= 0 {
+			if wss.onUserDisconnected != nil {
+				go wss.onUserDisconnected(id)
+			}
 			delete(wss.connections, id)
 		}
 
