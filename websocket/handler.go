@@ -1,10 +1,12 @@
 package websocket
 
 import (
+	"fmt"
 	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
 	"online-chat-go/auth"
+	"time"
 )
 
 var websocketUpgrader = websocket.Upgrader{
@@ -31,14 +33,21 @@ func NewWsHandler(wss *WSConnections, authorizer auth.Authorizer) func(w http.Re
 		wsconn := NewWsConnection(conn, defaultWsConfig)
 		wss.AddConnection(connId, wsconn)
 
+		timer := time.NewTicker(time.Second * 3)
 		go func() {
+			defer timer.Stop()
+
 			for {
 				select {
 				case <-wsconn.Done():
 					_ = wss.RemoveConnection(connId, wsconn)
 					return
+
+				case <-timer.C:
+					wsconn.WritePump() <- WsMessage{Type: websocket.TextMessage, Data: []byte("Hello")}
+
 				case msg := <-wsconn.ReadPump():
-					log.Println("NEW MESSAGE FROM: %s, MSG: %s", connId, msg)
+					log.Println(fmt.Sprintf("NEW MESSAGE FROM: %s, MSG: %s", connId, msg))
 				}
 			}
 		}()

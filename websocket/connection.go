@@ -1,8 +1,9 @@
 package websocket
 
 import (
+	"github.com/docker/go-units"
 	"github.com/gorilla/websocket"
-	"log"
+	"sync"
 	"time"
 )
 
@@ -20,15 +21,16 @@ type WsConfig struct {
 var defaultWsConfig = WsConfig{
 	Timeout:      10 * time.Second,
 	PingInterval: 1 * time.Second,
-	ReadLimit:    1024 * 64,
+	ReadLimit:    64 * units.KB,
 }
 
 type wsConnection struct {
-	writePump chan WsMessage
-	readPump  chan WsMessage
-	done      chan bool
-	config    WsConfig
-	conn      *websocket.Conn
+	writePump    chan WsMessage
+	readPump     chan WsMessage
+	closingGuard *sync.Mutex // to prevent multiple goroutines closing done channel
+	done         chan bool
+	config       WsConfig
+	conn         *websocket.Conn
 }
 
 type WSConnection interface {
@@ -50,6 +52,9 @@ func (wsc *wsConnection) ReadPump() <-chan WsMessage {
 }
 
 func (wsc *wsConnection) Close() error {
+	wsc.closingGuard.Lock()
+	defer wsc.closingGuard.Unlock()
+
 	select {
 	case <-wsc.done:
 		return nil
@@ -66,32 +71,27 @@ func (wsc *wsConnection) Done() <-chan bool {
 
 func (wsc *wsConnection) runWriter() {
 	ticker := time.NewTicker(wsc.config.PingInterval)
-	defer func() {
-		ticker.Stop()
-		_ = wsc.Close()
-	}()
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-wsc.done:
 			return
 
-		case msg := <-wsc.writePump:
-			err := wsc.writeWithDeadline(msg.Type, msg.Data)
-			if err != nil {
+		case <-ticker.C:
+			if err := wsc.write(websocket.PingMessage, []byte{}); err != nil {
 				return
 			}
 
-		case <-ticker.C:
-			err := wsc.writeWithDeadline(websocket.PingMessage, []byte{})
-			if err != nil {
+		case msg := <-wsc.writePump:
+			if err := wsc.write(msg.Type, msg.Data); err != nil {
 				return
 			}
 		}
 	}
 }
 
-func (wsc *wsConnection) writeWithDeadline(msgType int, msgData []byte) error {
+func (wsc *wsConnection) write(msgType int, msgData []byte) error {
 	_ = wsc.conn.SetWriteDeadline(time.Now().Add(wsc.config.Timeout))
 	err := wsc.conn.WriteMessage(msgType, msgData)
 	if err != nil {
@@ -102,37 +102,46 @@ func (wsc *wsConnection) writeWithDeadline(msgType int, msgData []byte) error {
 }
 
 func (wsc *wsConnection) runReader() {
-	wsc.conn.SetReadLimit(wsc.config.ReadLimit)
-	_ = wsc.conn.SetReadDeadline(time.Now().Add(wsc.config.Timeout))
+	for {
+		select {
+		case <-wsc.done:
+			return
 
+		default:
+			if msgType, msgData, err := wsc.conn.ReadMessage(); err != nil {
+				_ = wsc.Close()
+				return
+			} else {
+				wsc.readPump <- WsMessage{Type: msgType, Data: msgData}
+			}
+		}
+	}
+}
+
+func (wsc *wsConnection) setUp() {
+	wsc.conn.SetReadLimit(wsc.config.ReadLimit)
+
+	_ = wsc.conn.SetReadDeadline(time.Now().Add(wsc.config.Timeout))
 	pongHandler := func(string) error {
 		_ = wsc.conn.SetReadDeadline(time.Now().Add(wsc.config.Timeout))
 		return nil
 	}
 	wsc.conn.SetPongHandler(pongHandler)
 
-	for {
-		msgType, msgData, err := wsc.conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
-			}
-			_ = wsc.Close()
-			return
-		}
-		wsc.readPump <- WsMessage{Type: msgType, Data: msgData}
-	}
+	go wsc.runWriter()
+	go wsc.runReader()
 }
 
 func NewWsConnection(conn *websocket.Conn, config WsConfig) WSConnection {
 	wsc := &wsConnection{
-		conn:      conn,
-		config:    config,
-		writePump: make(chan WsMessage, 256),
-		readPump:  make(chan WsMessage, 256),
-		done:      make(chan bool),
+		conn:         conn,
+		config:       config,
+		writePump:    make(chan WsMessage, 256),
+		readPump:     make(chan WsMessage, 256),
+		closingGuard: &sync.Mutex{},
+		done:         make(chan bool),
 	}
-	go wsc.runWriter()
-	go wsc.runReader()
+
+	wsc.setUp()
 	return wsc
 }
