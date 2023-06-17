@@ -25,7 +25,7 @@ func RemoveSwapElem[T comparable](arr *[]T, elem T) error {
 func RemoveSwap[T any](arr *[]T, idx int) error {
 	derefArr := *arr
 	length := len(derefArr)
-	if idx <= 0 {
+	if idx < 0 {
 		return &RemovalError{"Index is less than 0"}
 	} else if idx >= length {
 		return &RemovalError{fmt.Sprintf("Index: %d is greater than slice length: %d", idx, length)}
