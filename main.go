@@ -3,14 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgxpool"
+	websocket2 "github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
 	"log"
 	"net/http"
 	"online-chat-go/auth"
-	"online-chat-go/db"
-	"online-chat-go/db/repository"
+	"online-chat-go/events"
 	"online-chat-go/websocket"
-	"os"
+	"strings"
 )
 
 func handleIndex(response http.ResponseWriter, request *http.Request) {
@@ -21,7 +21,27 @@ func handleIndex(response http.ResponseWriter, request *http.Request) {
 }
 
 func main() {
-	wss := websocket.NewWSConnections()
+	wss := websocket.NewWSServer()
+	redis := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       -1,
+	})
+	pubsub := redis.Subscribe(context.Background())
+
+	eventBus := events.NewRedisEventBus(redis, pubsub)
+	eventBus.SetMessageHandler(func(topic string, msg []byte) {
+		id, _ := strings.CutPrefix(topic, "/to/user/")
+		wss.SendMessage(id, msg, websocket2.TextMessage)
+	})
+
+	wss.SetOnUserConnected(func(id string) {
+		eventBus.Subscribe(context.Background(), fmt.Sprintf("/to/user/%s", id))
+	})
+	wss.SetOnUserDisconnected(func(id string) {
+		eventBus.Unsubscribe(context.Background(), fmt.Sprintf("/to/user/%s", id))
+	})
+
 	authorizer := &auth.DummyAuthorizer{}
 
 	http.HandleFunc("/", handleIndex)

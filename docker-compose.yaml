@@ -11,3 +11,7 @@ services:
       - POSTGRES_HOST_AUTH_METHOD=trust
     ports:
       - "5432:5432"
+  redis-pubsub:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
