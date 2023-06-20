@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"online-chat-go/util"
-	"sync"
+	"runtime"
 )
 
 type WSError struct {
@@ -16,70 +16,57 @@ func (err WSError) Error() string {
 }
 
 type WSServer struct {
-	connections        map[string]*userWsConnections
-	mut                *sync.RWMutex
+	connections        *util.SafeMap[string, *userWsConnections]
 	onUserConnected    func(id string)
 	onUserDisconnected func(id string)
 }
 
 func NewWSServer() *WSServer {
-	conn := make(map[string]*userWsConnections)
-	return &WSServer{
-		connections: conn,
-		mut:         &sync.RWMutex{},
-	}
+	return &WSServer{connections: util.New[string, *userWsConnections]()}
 }
 
 func (wss *WSServer) SetOnUserConnected(callback func(id string)) {
-	wss.mut.Lock()
-	defer wss.mut.Unlock()
-
 	wss.onUserConnected = callback
 }
 
 func (wss *WSServer) SetOnUserDisconnected(callback func(id string)) {
-	wss.mut.Lock()
-	defer wss.mut.Unlock()
-
 	wss.onUserDisconnected = callback
 }
 
-func (wss *WSServer) AddConnection(id string, conn WSConnection) {
-	var userConns *userWsConnections
-	var ok bool
+func (wss *WSServer) AddConnection(id string, conn WSConnection) error {
+	for {
+		userConns, created := wss.connections.ComputeIfAbsent(id, newSingleUserWsConnection)
+		err := userConns.AddConnection(conn)
 
-	wss.mut.Lock()
-	if userConns, ok = wss.connections[id]; !ok {
-		userConns = newUserWsSessions(1)
-		if wss.onUserConnected != nil {
-			go wss.onUserConnected(id)
+		if err == nil {
+			if created && wss.onUserConnected != nil {
+				go wss.onUserConnected(id)
+			}
+
+			return nil
+		} else if _, ok := err.(*DestroyedUConnUsageError); ok {
+			runtime.Gosched() // We can't add connection to destroyed holder, so we need to retry later
+		} else {
+			return err
 		}
-		wss.connections[id] = userConns
 	}
-	wss.mut.Unlock()
-
-	userConns.AddConnection(conn)
 }
 
 func (wss *WSServer) RemoveConnection(id string, conn WSConnection) error {
-	wss.mut.Lock()
-	defer wss.mut.Unlock()
-
-	userConns, ok := wss.connections[id]
-
-	if ok {
-		remaining, err := userConns.RemoveConnection(conn)
-		if remaining <= 0 {
-			if wss.onUserDisconnected != nil {
-				go wss.onUserDisconnected(id)
-			}
-			delete(wss.connections, id)
-		}
-
-		return err
-	} else {
+	userConns, ok := wss.connections.Get(id)
+	if !ok {
 		return &WSError{fmt.Sprintf("No connections for id: %s", id)}
 	}
+
+	destroyed, err := userConns.RemoveConnection(conn)
+	if destroyed {
+		wss.connections.Delete(id)
+		if wss.onUserDisconnected != nil {
+			go wss.onUserDisconnected(id)
+		}
+	}
+
+	return err
 }
 
 func (wss *WSServer) SendTextMessage(id string, msg string) error {
@@ -91,15 +78,12 @@ func (wss *WSServer) SendBinaryMessage(id string, msg []byte) error {
 }
 
 func (wss *WSServer) SendMessage(id string, msgData []byte, msgType int) error {
-	wss.mut.RLock()
-	userConns, ok := wss.connections[id]
-	wss.mut.RUnlock()
-
+	userConns, ok := wss.connections.Get(id)
 	if !ok {
 		return &WSError{fmt.Sprintf("No connections for id: %s", id)}
 	}
 
-	userConns.ForAllConnections(
+	return userConns.ForAllConnections(
 		func(conn WSConnection) {
 			select {
 			case <-conn.Done():
@@ -109,46 +93,4 @@ func (wss *WSServer) SendMessage(id string, msgData []byte, msgType int) error {
 			}
 		},
 	)
-
-	return nil
-}
-
-// internal holder struct for all opened ws connections of particular user
-type userWsConnections struct {
-	connections *[]WSConnection
-	mut         *sync.RWMutex
-}
-
-func newUserWsSessions(initialCapacity int) *userWsConnections {
-	s := make([]WSConnection, 0, initialCapacity)
-	return &userWsConnections{
-		connections: &s,
-		mut:         &sync.RWMutex{},
-	}
-}
-
-// AddConnection Does not perform contains check for speed, so same connection should not be added multiple times
-func (u *userWsConnections) AddConnection(conn WSConnection) {
-	u.mut.Lock()
-	defer u.mut.Unlock()
-
-	us := append(*u.connections, conn)
-	u.connections = &us
-}
-
-func (u *userWsConnections) RemoveConnection(conn WSConnection) (int, error) {
-	u.mut.Lock()
-	defer u.mut.Unlock()
-
-	err := util.RemoveSwapElem(u.connections, conn)
-	return len(*u.connections), err
-}
-
-func (u *userWsConnections) ForAllConnections(block func(conn WSConnection)) {
-	u.mut.RLock()
-	defer u.mut.RUnlock()
-
-	for _, connection := range *u.connections {
-		go block(connection)
-	}
 }

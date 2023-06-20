@@ -30,7 +30,7 @@ func NewWsHandler(wss *WSServer, authorizer auth.Authorizer) func(w http.Respons
 
 		connId := principle.Id
 		wsconn := NewWsConnection(conn, defaultWsConfig)
-		wss.AddConnection(connId, wsconn)
+		_ = wss.AddConnection(connId, wsconn)
 
 		go func() {
 			for {

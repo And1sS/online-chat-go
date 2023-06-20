@@ -27,7 +27,7 @@ var defaultWsConfig = WsConfig{
 type wsConnection struct {
 	writePump chan WsMessage
 	readPump  chan WsMessage
-	mut       *sync.Mutex // to prevent multiple goroutines closing done channel
+	mut       *sync.Mutex // to prevent multiple goroutines from closing done channel
 	done      chan bool
 	config    WsConfig
 	conn      *websocket.Conn
