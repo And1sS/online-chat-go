@@ -15,3 +15,11 @@ services:
     image: redis:alpine
     ports:
       - "6379:6379"
+  consul-server:
+    image: consul:latest
+    ports:
+      - "8400:8400"
+      - "8500:8500"
+      - "8600:8600"
+      - "8600:8600/udp"
+    command: "agent -server -node consul_server -ui -bootstrap -client 0.0.0.0"

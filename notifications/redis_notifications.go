@@ -1,4 +1,4 @@
-package events
+package notifications
 
 import (
 	"context"
@@ -11,7 +11,7 @@ type RedisEventBus struct {
 	msgHandler func(topic string, msg []byte)
 }
 
-func NewRedisEventBus(redis *redis.Client, pubsub *redis.PubSub) EventBus {
+func NewRedisNotificationBus(redis *redis.Client, pubsub *redis.PubSub) NotificationBus {
 	reb := &RedisEventBus{
 		redis:  redis,
 		pubsub: pubsub,

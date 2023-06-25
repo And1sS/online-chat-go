@@ -16,10 +16,11 @@ var websocketUpgrader = websocket.Upgrader{
 
 func NewWsHandler(wss *WSServer, authorizer auth.Authorizer) func(w http.ResponseWriter, r *http.Request) {
 	return func(writer http.ResponseWriter, request *http.Request) {
-		principle, err := authorizer.Authorize(request)
+		principal, err := authorizer.Authorize(request)
 		if err != nil {
 			writer.WriteHeader(http.StatusUnauthorized)
 			_, _ = writer.Write([]byte(err.Error()))
+			return
 		}
 
 		conn, err := websocketUpgrader.Upgrade(writer, request, nil)
@@ -28,7 +29,7 @@ func NewWsHandler(wss *WSServer, authorizer auth.Authorizer) func(w http.Respons
 			return
 		}
 
-		connId := principle.Id
+		connId := principal.Id
 		wsconn := NewWsConnection(conn, defaultWsConfig)
 		_ = wss.AddConnection(connId, wsconn)
 

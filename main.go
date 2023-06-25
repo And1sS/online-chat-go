@@ -3,66 +3,96 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/google/uuid"
 	websocket2 "github.com/gorilla/websocket"
+	capi "github.com/hashicorp/consul/api"
 	"github.com/redis/go-redis/v9"
 	"log"
 	"net/http"
 	"online-chat-go/auth"
-	"online-chat-go/events"
+	"online-chat-go/notifications"
 	"online-chat-go/websocket"
 	"strings"
+	"time"
 )
 
-func handleIndex(response http.ResponseWriter, request *http.Request) {
-	_, err := response.Write([]byte("test"))
-	if err != nil {
-		log.Fatal("error sending response: ", err)
+func main() {
+	// TODO: remove hardcoded variables and move to config files
+	wss := websocket.NewWSServer()
+	authorizer := &auth.DummyAuthorizer{}
+	notificationBus := StartNotificationBus()
+
+	StartConsul()
+	SetUpNotificationHandlers(wss, notificationBus)
+	SetUpWsMessageHandlers(wss, notificationBus)
+
+	http.HandleFunc("/", websocket.NewWsHandler(wss, authorizer))
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatal("Unable to bind server: ", err)
 	}
 }
 
-func main() {
-	wss := websocket.NewWSServer()
-	redis := redis.NewClient(&redis.Options{
+func StartNotificationBus() notifications.NotificationBus {
+	rc := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		Password: "",
 		DB:       -1,
 	})
-	pubsub := redis.Subscribe(context.Background())
+	pubsub := rc.Subscribe(context.Background())
+	return notifications.NewRedisNotificationBus(rc, pubsub)
+}
 
-	eventBus := events.NewRedisEventBus(redis, pubsub)
-	eventBus.SetMessageHandler(func(topic string, msg []byte) {
+func SetUpNotificationHandlers(wss *websocket.WSServer, bus notifications.NotificationBus) {
+	bus.SetMessageHandler(func(topic string, msg []byte) {
 		id, _ := strings.CutPrefix(topic, "/to/user/")
 		wss.SendMessage(id, msg, websocket2.TextMessage)
 	})
+}
 
+func SetUpWsMessageHandlers(wss *websocket.WSServer, bus notifications.NotificationBus) {
 	wss.SetOnUserConnected(func(id string) {
-		eventBus.Subscribe(context.Background(), fmt.Sprintf("/to/user/%s", id))
+		bus.Subscribe(context.Background(), fmt.Sprintf("/to/user/%s", id))
 	})
 	wss.SetOnUserDisconnected(func(id string) {
-		eventBus.Unsubscribe(context.Background(), fmt.Sprintf("/to/user/%s", id))
+		bus.Unsubscribe(context.Background(), fmt.Sprintf("/to/user/%s", id))
 	})
+}
 
-	authorizer := &auth.DummyAuthorizer{}
-
-	http.HandleFunc("/", handleIndex)
-	http.HandleFunc("/ws", websocket.NewWsHandler(wss, authorizer))
-
-	// TODO: remove hardcoded variables and move to config files
-	const dbUrl = "postgres://online-chat:jumanji@localhost:5432/online-chat?sslmode=disable"
-	err := db.RunMigrations(os.DirFS("."), "db/migrations", dbUrl)
+func StartConsul() *capi.Client {
+	consul, err := capi.NewClient(capi.DefaultConfig())
 	if err != nil {
-		log.Fatal("Unable to run migrations: ", err)
+		log.Fatal("Unable to create consul client: ", err)
 	}
 
-	pool, err := pgxpool.New(context.Background(), dbUrl)
+	ttl := time.Second * 30
+	checkId := "alive-check"
+	register := &capi.AgentServiceRegistration{
+		ID:   fmt.Sprintf("connection-service-%s", uuid.New().String()),
+		Name: "connection-service",
+		Tags: []string{"connection"},
+		Port: 8080,
+		Check: &capi.AgentServiceCheck{
+			CheckID:       checkId,
+			TLSSkipVerify: true,
+			TTL:           ttl.String(),
+		},
+	}
+
+	err = consul.Agent().ServiceRegister(register)
 	if err != nil {
-		log.Fatal("Unable to connect to database: ", err)
+		log.Fatal("Unable to register service in consul: ", err)
 	}
 
-	userRepo := repository.NewPgUserRepository(pool)
-	fmt.Println(userRepo.GetByUserName(context.Background(), "user"))
+	go func() {
+		ticker := time.NewTicker(ttl / 2)
+		for {
+			<-ticker.C
+			err := consul.Agent().UpdateTTL(checkId, "online", capi.HealthPassing)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}()
 
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		log.Fatal("Unable to bind server: ", err)
-	}
+	return consul
 }
