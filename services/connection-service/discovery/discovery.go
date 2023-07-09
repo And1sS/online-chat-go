@@ -1,18 +1,16 @@
 package discovery
 
 import (
+	"fmt"
 	"github.com/google/uuid"
 	capi "github.com/hashicorp/consul/api"
 	"log"
+	"online-chat-go/config"
 	"time"
 )
 
 const (
-	ttl         = 30 * time.Second
-	checkId     = "alive-check"
-	serviceName = "connection-service"
-	online      = "online"
-	connection  = "connection"
+	online = "online"
 )
 
 type ConsulAgent struct {
@@ -54,8 +52,11 @@ func (c *ConsulAgent) healthChecker(onError func(error)) {
 	}
 }
 
-func NewConsul(port int) *ConsulAgent {
-	consul, err := capi.NewClient(capi.DefaultConfig())
+func NewConsul(applicationPort int, config *config.ConsulConfig) *ConsulAgent {
+	consulConfig := capi.DefaultConfig()
+	consulConfig.Address = fmt.Sprintf("%s:%d", config.Host, config.Port)
+
+	consul, err := capi.NewClient(consulConfig)
 	if err != nil {
 		log.Fatal("Unable to create consul client: ", err)
 	}
@@ -63,11 +64,11 @@ func NewConsul(port int) *ConsulAgent {
 	agent := &ConsulAgent{
 		api:         consul,
 		Id:          uuid.New(),
-		ServiceName: serviceName,
-		Tags:        []string{connection},
-		Port:        port,
-		Ttl:         ttl,
-		CheckId:     checkId,
+		ServiceName: config.ServiceName,
+		Tags:        config.Tags,
+		Port:        applicationPort,
+		Ttl:         config.Ttl,
+		CheckId:     config.CheckId,
 	}
 
 	if err = agent.registerService(); err != nil {

@@ -8,37 +8,34 @@ import (
 	"log"
 	"net/http"
 	"online-chat-go/auth"
+	"online-chat-go/config"
 	"online-chat-go/discovery"
 	"online-chat-go/notifications"
 	"online-chat-go/websocket"
 	"strings"
 )
 
-// TODO: remove hardcoded variables and move to config files
-const (
-	applicationPort = 8080
-	redisPort       = 6379
-)
-
 func main() {
+	cfg := config.ReadConfig()
+	fmt.Println(cfg)
 	wss := websocket.NewWSServer()
 	authorizer := &auth.DummyAuthorizer{}
-	notificationBus := StartNotificationBus()
-	_ = discovery.NewConsul(applicationPort)
+	notificationBus := StartNotificationBus(&cfg.NotificationBus)
+	_ = discovery.NewConsul(cfg.App.Port, &cfg.Discovery.Consul)
 
-	SetUpNotificationHandlers(wss, notificationBus)
-	SetUpWsMessageHandlers(wss, notificationBus)
+	SetUpNotificationHandlers(wss, notificationBus, &cfg.NotificationBus)
+	SetUpWsMessageHandlers(wss, notificationBus, &cfg.NotificationBus)
 
-	http.HandleFunc("/", websocket.NewWsHandler(wss, authorizer))
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", applicationPort), nil); err != nil {
+	http.HandleFunc("/", websocket.NewWsHandler(wss, authorizer, &cfg.Ws))
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.App.Port), nil); err != nil {
 		log.Fatal("Unable to bind server: ", err)
 	}
 }
 
-func StartNotificationBus() notifications.NotificationBus {
+func StartNotificationBus(config *config.NotificationBusConfig) notifications.NotificationBus {
 	rc := redis.NewClient(
 		&redis.Options{
-			Addr:     fmt.Sprintf("localhost:%s", redisPort),
+			Addr:     fmt.Sprintf("%s:%s", config.Redis.Host, config.Redis.Port),
 			Password: "",
 			DB:       -1,
 		},
@@ -47,18 +44,18 @@ func StartNotificationBus() notifications.NotificationBus {
 	return notifications.NewRedisNotificationBus(rc, pubsub)
 }
 
-func SetUpNotificationHandlers(wss *websocket.WSServer, bus notifications.NotificationBus) {
+func SetUpNotificationHandlers(wss *websocket.WSServer, bus notifications.NotificationBus, config *config.NotificationBusConfig) {
 	bus.SetMessageHandler(func(topic string, msg []byte) {
-		id, _ := strings.CutPrefix(topic, "/to/user/")
+		id, _ := strings.CutPrefix(topic, config.Redis.UserTopic)
 		wss.SendMessage(id, msg, websocket2.TextMessage)
 	})
 }
 
-func SetUpWsMessageHandlers(wss *websocket.WSServer, bus notifications.NotificationBus) {
+func SetUpWsMessageHandlers(wss *websocket.WSServer, bus notifications.NotificationBus, config *config.NotificationBusConfig) {
 	wss.SetOnUserConnected(func(id string) {
-		bus.Subscribe(context.Background(), fmt.Sprintf("/to/user/%s", id))
+		bus.Subscribe(context.Background(), fmt.Sprintf("%s%s", config.Redis.UserTopic, id))
 	})
 	wss.SetOnUserDisconnected(func(id string) {
-		bus.Unsubscribe(context.Background(), fmt.Sprintf("/to/user/%s", id))
+		bus.Unsubscribe(context.Background(), fmt.Sprintf("%s%s", config.Redis.UserTopic, id))
 	})
 }

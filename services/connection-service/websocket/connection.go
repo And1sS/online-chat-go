@@ -1,8 +1,8 @@
 package websocket
 
 import (
-	"github.com/docker/go-units"
 	"github.com/gorilla/websocket"
+	"online-chat-go/config"
 	"sync"
 	"time"
 )
@@ -12,24 +12,12 @@ type WsMessage struct {
 	Data []byte
 }
 
-type WsConfig struct {
-	Timeout      time.Duration
-	PingInterval time.Duration
-	ReadLimit    int64
-}
-
-var defaultWsConfig = WsConfig{
-	Timeout:      10 * time.Second,
-	PingInterval: 1 * time.Second,
-	ReadLimit:    64 * units.KB,
-}
-
 type wsConnection struct {
 	writePump chan WsMessage
 	readPump  chan WsMessage
 	mut       *sync.Mutex // to prevent multiple goroutines from closing done channel
 	done      chan bool
-	config    WsConfig
+	config    *config.WsConfig
 	conn      *websocket.Conn
 }
 
@@ -132,12 +120,12 @@ func (wsc *wsConnection) setUp() {
 	go wsc.runReader()
 }
 
-func NewWsConnection(conn *websocket.Conn, config WsConfig) WSConnection {
+func NewWsConnection(conn *websocket.Conn, config *config.WsConfig) WSConnection {
 	wsc := &wsConnection{
 		conn:      conn,
 		config:    config,
-		writePump: make(chan WsMessage, 256),
-		readPump:  make(chan WsMessage, 256),
+		writePump: make(chan WsMessage, config.BufferSize),
+		readPump:  make(chan WsMessage, config.BufferSize),
 		mut:       &sync.Mutex{},
 		done:      make(chan bool),
 	}

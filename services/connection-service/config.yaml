@@ -1,0 +1,21 @@
+app:
+  port: 8080
+ws:
+  timeout: 10s
+  ping-interval: 1s
+  read-limit: 64000
+  buffer-size: 256
+notification-bus:
+  redis:
+    host: localhost
+    port: 6379
+    user-topic: /to/user/
+discovery:
+  consul:
+    host: localhost
+    port: 8500
+    service-name: connection-service
+    check-id: alive-check
+    tags:
+      - connection
+    ttl: 30s

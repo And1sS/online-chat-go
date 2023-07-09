@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"online-chat-go/auth"
+	"online-chat-go/config"
 )
 
 var websocketUpgrader = websocket.Upgrader{
@@ -14,7 +15,7 @@ var websocketUpgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
-func NewWsHandler(wss *WSServer, authorizer auth.Authorizer) func(w http.ResponseWriter, r *http.Request) {
+func NewWsHandler(wss *WSServer, authorizer auth.Authorizer, config *config.WsConfig) func(w http.ResponseWriter, r *http.Request) {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		principal, err := authorizer.Authorize(request)
 		if err != nil {
@@ -30,7 +31,7 @@ func NewWsHandler(wss *WSServer, authorizer auth.Authorizer) func(w http.Respons
 		}
 
 		connId := principal.Id
-		wsconn := NewWsConnection(conn, defaultWsConfig)
+		wsconn := NewWsConnection(conn, config)
 		_ = wss.AddConnection(connId, wsconn)
 
 		go func() {
