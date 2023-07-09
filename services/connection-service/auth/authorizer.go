@@ -2,7 +2,6 @@ package auth
 
 import (
 	"errors"
-	"math/rand"
 	"net/http"
 	"strconv"
 )
@@ -20,5 +19,5 @@ func (n *NoOpAuthorizer) Authorize(_ *http.Request) (*Principal, error) {
 type DummyAuthorizer struct{}
 
 func (d *DummyAuthorizer) Authorize(_ *http.Request) (*Principal, error) {
-	return &Principal{Id: strconv.Itoa(rand.Int())}, nil
+	return &Principal{Id: strconv.Itoa(1)}, nil
 }
