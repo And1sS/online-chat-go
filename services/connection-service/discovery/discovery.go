@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// TODO: change hardcoded struct with interface to abstract away consul
+// TODO: add ability to retrieve redis nodes addresses from consul and subscribe for updates
 const (
 	online = "online"
 )

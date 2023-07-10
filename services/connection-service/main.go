@@ -32,6 +32,7 @@ func main() {
 	}
 }
 
+// TODO: move to notification bus package
 func StartNotificationBus(config *config.NotificationBusConfig) notifications.NotificationBus {
 	rc := redis.NewClient(
 		&redis.Options{
