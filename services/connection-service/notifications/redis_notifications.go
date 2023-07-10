@@ -3,11 +3,13 @@ package notifications
 import (
 	"context"
 	"github.com/redis/go-redis/v9"
+	"online-chat-go/config"
 )
 
 type RedisEventBus struct {
 	redis      *redis.Client
 	pubsub     *redis.PubSub
+	config     *config.RedisConfig
 	msgHandler func(topic string, msg []byte)
 }
 
@@ -35,6 +37,10 @@ func (reb *RedisEventBus) Unsubscribe(ctx context.Context, topic string) {
 
 func (reb *RedisEventBus) SetMessageHandler(handler func(topic string, msg []byte)) {
 	reb.msgHandler = handler
+}
+
+func (reb *RedisEventBus) UserTopic() string {
+	return reb.config.UserTopic
 }
 
 func (reb *RedisEventBus) runReader() {

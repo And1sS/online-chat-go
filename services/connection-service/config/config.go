@@ -25,13 +25,14 @@ type WsConfig struct {
 }
 
 type NotificationBusConfig struct {
-	Redis struct {
-		Host      string
-		Port      int
-		UserTopic string `mapstructure:"user-topic"`
-	}
+	Redis RedisConfig
 }
 
+type RedisConfig struct {
+	Host      string
+	Port      int
+	UserTopic string `mapstructure:"user-topic"`
+}
 type DiscoveryConfig struct {
 	Consul ConsulConfig
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	websocket2 "github.com/gorilla/websocket"
-	"github.com/redis/go-redis/v9"
 	"log"
 	"net/http"
 	"online-chat-go/auth"
@@ -20,11 +19,11 @@ func main() {
 	fmt.Println(cfg)
 	wss := websocket.NewWSServer()
 	authorizer := &auth.DummyAuthorizer{}
-	notificationBus := StartNotificationBus(&cfg.NotificationBus)
+	notificationBus := notifications.NewNotificationBus(&cfg.NotificationBus)
 	_ = discovery.NewConsul(cfg.App.Port, &cfg.Discovery.Consul)
 
-	SetUpNotificationHandlers(wss, notificationBus, &cfg.NotificationBus)
-	SetUpWsMessageHandlers(wss, notificationBus, &cfg.NotificationBus)
+	SetUpNotificationHandlers(wss, notificationBus)
+	SetUpWsMessageHandlers(wss, notificationBus)
 
 	http.HandleFunc("/", websocket.NewWsHandler(wss, authorizer, &cfg.Ws))
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.App.Port), nil); err != nil {
@@ -32,31 +31,18 @@ func main() {
 	}
 }
 
-// TODO: move to notification bus package
-func StartNotificationBus(config *config.NotificationBusConfig) notifications.NotificationBus {
-	rc := redis.NewClient(
-		&redis.Options{
-			Addr:     fmt.Sprintf("%s:%s", config.Redis.Host, config.Redis.Port),
-			Password: "",
-			DB:       -1,
-		},
-	)
-	pubsub := rc.Subscribe(context.Background())
-	return notifications.NewRedisNotificationBus(rc, pubsub)
-}
-
-func SetUpNotificationHandlers(wss *websocket.WSServer, bus notifications.NotificationBus, config *config.NotificationBusConfig) {
+func SetUpNotificationHandlers(wss *websocket.WSServer, bus notifications.NotificationBus) {
 	bus.SetMessageHandler(func(topic string, msg []byte) {
-		id, _ := strings.CutPrefix(topic, config.Redis.UserTopic)
+		id, _ := strings.CutPrefix(topic, bus.UserTopic())
 		wss.SendMessage(id, msg, websocket2.TextMessage)
 	})
 }
 
-func SetUpWsMessageHandlers(wss *websocket.WSServer, bus notifications.NotificationBus, config *config.NotificationBusConfig) {
+func SetUpWsMessageHandlers(wss *websocket.WSServer, bus notifications.NotificationBus) {
 	wss.SetOnUserConnected(func(id string) {
-		bus.Subscribe(context.Background(), fmt.Sprintf("%s%s", config.Redis.UserTopic, id))
+		bus.Subscribe(context.Background(), fmt.Sprintf("%s%s", bus.UserTopic(), id))
 	})
 	wss.SetOnUserDisconnected(func(id string) {
-		bus.Unsubscribe(context.Background(), fmt.Sprintf("%s%s", config.Redis.UserTopic, id))
+		bus.Unsubscribe(context.Background(), fmt.Sprintf("%s%s", bus.UserTopic(), id))
 	})
 }
