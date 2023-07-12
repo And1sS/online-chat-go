@@ -1,19 +1,12 @@
 package websocket
 
 import (
+	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"online-chat-go/util"
 	"runtime"
 )
-
-type WSError struct {
-	msg string
-}
-
-func (err WSError) Error() string {
-	return err.msg
-}
 
 type WSServer struct {
 	connections        *util.SafeMap[string, *userWsConnections]
@@ -22,7 +15,7 @@ type WSServer struct {
 }
 
 func NewWSServer() *WSServer {
-	return &WSServer{connections: util.New[string, *userWsConnections]()}
+	return &WSServer{connections: util.NewSafeMap[string, *userWsConnections]()}
 }
 
 func (wss *WSServer) SetOnUserConnected(callback func(id string)) {
@@ -55,7 +48,7 @@ func (wss *WSServer) AddConnection(id string, conn WSConnection) error {
 func (wss *WSServer) RemoveConnection(id string, conn WSConnection) error {
 	userConns, ok := wss.connections.Get(id)
 	if !ok {
-		return &WSError{fmt.Sprintf("No connections for id: %s", id)}
+		return errors.New(fmt.Sprintf("No connections for id: %s", id))
 	}
 
 	destroyed, err := userConns.RemoveConnection(conn)
@@ -80,7 +73,7 @@ func (wss *WSServer) SendBinaryMessage(id string, msg []byte) error {
 func (wss *WSServer) SendMessage(id string, msgData []byte, msgType int) error {
 	userConns, ok := wss.connections.Get(id)
 	if !ok {
-		return &WSError{fmt.Sprintf("No connections for id: %s", id)}
+		return errors.New(fmt.Sprintf("No connections for id: %s", id))
 	}
 
 	return userConns.ForAllConnections(

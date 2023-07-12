@@ -16,7 +16,7 @@ services:
     ports:
       - "6379:6379"
   consul-server:
-    image: consul:latest
+    image: hashicorp/consul:latest
     ports:
       - "8400:8400"
       - "8500:8500"

@@ -5,7 +5,6 @@ go 1.20
 require github.com/gorilla/websocket v1.5.0
 
 require (
-	github.com/docker/go-units v0.5.0
 	github.com/golang-migrate/migrate/v4 v4.16.2
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/consul/api v1.21.0
