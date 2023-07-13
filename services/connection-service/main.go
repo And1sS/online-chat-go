@@ -10,6 +10,7 @@ import (
 	"online-chat-go/config"
 	"online-chat-go/discovery"
 	"online-chat-go/notifications"
+	notificationsconfig "online-chat-go/notifications/config"
 	"online-chat-go/websocket"
 	"strings"
 )
@@ -19,7 +20,7 @@ func main() {
 	fmt.Println(cfg)
 	wss := websocket.NewWSServer()
 	authorizer := &auth.DummyAuthorizer{}
-	notificationBus := notifications.NewNotificationBus(&cfg.NotificationBus)
+	notificationBus := notificationsconfig.NewNotificationBus(&cfg.NotificationBus)
 	_ = discovery.NewConsul(cfg.App.Port, &cfg.Discovery.Consul)
 
 	SetUpNotificationHandlers(wss, notificationBus)

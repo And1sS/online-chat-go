@@ -11,8 +11,14 @@ services:
       - POSTGRES_HOST_AUTH_METHOD=trust
     ports:
       - "5432:5432"
-  redis-pubsub:
-    image: redis:alpine
+  redis-notification-bus:
+    image: redis-notification-bus
+    build:
+      context: ./notifications/redis_bus
+      args:
+        CONSUL_VERSION: 1.16.0
+    environment:
+      CONSUL_HOST: consul-server
     ports:
       - "6379:6379"
   consul-server:

@@ -1,0 +1,18 @@
+{
+  "service": {
+    "id": "redis-notification-bus",
+    "name": "redis-notification-bus",
+    "port": 6379,
+    "tags": [
+      "notification-bus",
+      "redis"
+    ],
+    "check": {
+      "id": "redis-instance-status",
+      "name": "Redis instance status",
+      "args": ["/etc/consul.d/check_scripts/redis-instance-check.sh"],
+      "interval": "30s",
+      "timeout": "20s"
+    }
+  }
+}

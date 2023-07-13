@@ -15,7 +15,7 @@ discovery:
     host: localhost
     port: 8500
     service-name: connection-service
-    check-id: alive-check
+    check-id: connection-service-instance-status
     tags:
       - connection
     ttl: 30s

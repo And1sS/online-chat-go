@@ -60,7 +60,7 @@ func ReadConfig() Config {
 }
 
 func readFromConfigFile() {
-	viper.SetConfigName("services/connection-service/config")
+	viper.SetConfigName("config")
 	viper.AddConfigPath(".")
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Error reading config file, %s", err)
