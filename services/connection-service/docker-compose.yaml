@@ -13,6 +13,9 @@ services:
       - "5432:5432"
   redis-notification-bus:
     image: redis-notification-bus
+    deploy:
+      mode: replicated
+      replicas: 6
     build:
       context: ./notifications/redis_bus
       args:
@@ -20,7 +23,7 @@ services:
     environment:
       CONSUL_HOST: consul-server
     ports:
-      - "6379:6379"
+      - "6379-6400:6379"
   consul-server:
     image: hashicorp/consul:latest
     ports:

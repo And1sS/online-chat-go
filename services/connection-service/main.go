@@ -21,7 +21,8 @@ func main() {
 	wss := websocket.NewWSServer()
 	authorizer := &auth.DummyAuthorizer{}
 	notificationBus := notificationsconfig.NewNotificationBus(&cfg.NotificationBus)
-	_ = discovery.NewConsul(cfg.App.Port, &cfg.Discovery.Consul)
+	consul := discovery.NewConsul(cfg.App.Port, &cfg.Discovery.Consul)
+	go consul.RedisWatcher()
 
 	SetUpNotificationHandlers(wss, notificationBus)
 	SetUpWsMessageHandlers(wss, notificationBus)
