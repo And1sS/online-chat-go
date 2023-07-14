@@ -17,7 +17,7 @@ services:
       mode: replicated
       replicas: 6
     build:
-      context: ./notifications/redis_bus
+      context: ./docker/redis
       args:
         CONSUL_VERSION: 1.16.0
     environment:
