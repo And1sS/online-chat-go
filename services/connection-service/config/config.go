@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"github.com/spf13/viper"
 	"log"
 	"time"
@@ -10,7 +11,6 @@ type Config struct {
 	App             AppConfig
 	Ws              WsConfig
 	NotificationBus NotificationBusConfig `mapstructure:"notification-bus"`
-	Discovery       DiscoveryConfig
 }
 
 type AppConfig struct {
@@ -29,21 +29,33 @@ type NotificationBusConfig struct {
 }
 
 type RedisConfig struct {
-	Host      string
-	Port      int
 	UserTopic string `mapstructure:"user-topic"`
+	Single    *RedisInstanceConfig
+	Cluster   *RedisClusterConfig
 }
-type DiscoveryConfig struct {
+
+type RedisInstanceConfig struct {
+	Id   string
+	Host string
+	Port int
+}
+
+type RedisClusterConfig struct {
 	Consul ConsulConfig
 }
 
+func (rc *RedisConfig) validate() error {
+	if rc.Single == nil && rc.Cluster == nil {
+		return errors.New("No defined config for redis bus, should be either single or cluster")
+	}
+
+	return nil
+}
+
 type ConsulConfig struct {
-	Host        string
-	Port        int
-	ServiceName string `mapstructure:"service-name"`
-	CheckId     string `mapstructure:"check-id"`
-	Tags        []string
-	Ttl         time.Duration
+	Host             string
+	Port             int
+	RedisServiceName string `mapstructure:"redis-service-name"`
 }
 
 func ReadConfig() Config {
@@ -56,6 +68,10 @@ func ReadConfig() Config {
 		log.Fatal("unable to read configuration: ", err)
 	}
 
+	if err = validateConfig(config); err != nil {
+		log.Fatal("unable to read configuration: ", err)
+	}
+
 	return config
 }
 
@@ -65,4 +81,11 @@ func readFromConfigFile() {
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Error reading config file, %s", err)
 	}
+}
+
+func validateConfig(config Config) error {
+	if err := config.NotificationBus.Redis.validate(); err != nil {
+		return err
+	}
+	return nil
 }

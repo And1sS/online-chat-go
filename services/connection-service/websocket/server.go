@@ -33,7 +33,7 @@ func (wss *WSServer) AddConnection(id string, conn WSConnection) error {
 
 		if err == nil {
 			if created && wss.onUserConnected != nil {
-				go wss.onUserConnected(id)
+				wss.onUserConnected(id)
 			}
 
 			return nil
@@ -55,7 +55,7 @@ func (wss *WSServer) RemoveConnection(id string, conn WSConnection) error {
 	if destroyed {
 		wss.connections.Delete(id)
 		if wss.onUserDisconnected != nil {
-			go wss.onUserDisconnected(id)
+			wss.onUserDisconnected(id)
 		}
 	}
 

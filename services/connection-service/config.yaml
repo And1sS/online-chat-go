@@ -7,15 +7,12 @@ ws:
   buffer-size: 256
 notification-bus:
   redis:
-    host: localhost
-    port: 6379
     user-topic: /to/user/
-discovery:
-  consul:
-    host: localhost
-    port: 8500
-    service-name: connection-service
-    check-id: connection-service-instance-status
-    tags:
-      - connection
-    ttl: 30s
+    single:
+      host: localhost
+      port: 6379
+    cluster:
+      consul:
+        host: localhost
+        port: 8500
+        redis-service-name: redis-notification-bus

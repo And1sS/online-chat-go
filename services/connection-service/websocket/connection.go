@@ -23,11 +23,8 @@ type wsConnection struct {
 
 type WSConnection interface {
 	WritePump() chan<- WsMessage
-
 	ReadPump() <-chan WsMessage
-
 	Done() <-chan bool
-
 	Close() error
 }
 

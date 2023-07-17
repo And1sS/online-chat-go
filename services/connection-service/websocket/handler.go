@@ -1,7 +1,6 @@
 package websocket
 
 import (
-	"fmt"
 	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
@@ -15,7 +14,7 @@ var websocketUpgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
-func NewWsHandler(wss *WSServer, authorizer auth.Authorizer, config *config.WsConfig) func(w http.ResponseWriter, r *http.Request) {
+func NewWsHandler(wss *WSServer, authorizer auth.Authorizer, config *config.WsConfig, connHandler func(WSConnection)) func(w http.ResponseWriter, r *http.Request) {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		principal, err := authorizer.Authorize(request)
 		if err != nil {
@@ -32,19 +31,16 @@ func NewWsHandler(wss *WSServer, authorizer auth.Authorizer, config *config.WsCo
 
 		connId := principal.Id
 		wsconn := NewWsConnection(conn, config)
-		_ = wss.AddConnection(connId, wsconn)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 
 		go func() {
-			for {
-				select {
-				case <-wsconn.Done():
-					_ = wss.RemoveConnection(connId, wsconn)
-					return
+			_ = wss.AddConnection(connId, wsconn)
+			defer func() { _ = wss.RemoveConnection(connId, wsconn) }()
 
-				case msg := <-wsconn.ReadPump():
-					log.Println(fmt.Sprintf("NEW MESSAGE FROM: %s, MSG: %s", connId, msg))
-				}
-			}
+			connHandler(wsconn)
 		}()
 	}
 }

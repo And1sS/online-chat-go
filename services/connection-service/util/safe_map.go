@@ -1,6 +1,9 @@
 package util
 
-import "sync"
+import (
+	"math/rand"
+	"sync"
+)
 
 type SafeMap[K comparable, V any] struct {
 	mu   sync.RWMutex
@@ -37,6 +40,28 @@ func (s *SafeMap[K, V]) Get(k K) (V, bool) {
 	defer s.mu.RUnlock()
 	val, ok := s.data[k]
 	return val, ok
+}
+
+func (s *SafeMap[K, V]) ForRandomEntry(f func(K, V)) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	idx := 0
+	size := len(s.data)
+	if size == 0 {
+		return false
+	}
+
+	target := rand.Int() % size
+
+	for key, val := range s.data {
+		if idx == target {
+			f(key, val)
+			return true
+		}
+		idx++
+	}
+	return false
 }
 
 func (s *SafeMap[K, V]) Delete(k K) {
