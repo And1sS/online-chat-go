@@ -95,7 +95,7 @@ func (cnb *ClusteredRedisNotificationBus) watcher() {
 				return
 			}
 
-			log.Printf("New update from consul: %+v\n", event)
+			log.Printf("New update from consul: \nadded nodes %+v\nremoved nodes:%+v\n", event.Added.ToSlice(), event.Removed.ToSlice())
 			for _, node := range event.Added.ToSlice() {
 				cnb.add(node.NodeId, node.NodeHost, node.NodePort)
 			}

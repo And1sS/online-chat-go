@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"online-chat-go/config"
 	"sync"
@@ -13,6 +14,7 @@ type WsMessage struct {
 }
 
 type wsConnection struct {
+	id        string
 	writePump chan WsMessage
 	readPump  chan WsMessage
 	mut       *sync.Mutex // to prevent multiple goroutines from closing done channel
@@ -22,10 +24,15 @@ type wsConnection struct {
 }
 
 type WSConnection interface {
+	Id() string
 	WritePump() chan<- WsMessage
 	ReadPump() <-chan WsMessage
 	Done() <-chan bool
 	Close() error
+}
+
+func (wsc *wsConnection) Id() string {
+	return wsc.id
 }
 
 func (wsc *wsConnection) WritePump() chan<- WsMessage {
@@ -117,8 +124,14 @@ func (wsc *wsConnection) setUp() {
 	go wsc.runReader()
 }
 
-func NewWsConnection(conn *websocket.Conn, config *config.WsConfig) WSConnection {
+func NewWsConnection(conn *websocket.Conn, config *config.WsConfig) (WSConnection, error) {
+	id, err := uuid.NewUUID()
+	if err != nil {
+		return nil, err
+	}
+
 	wsc := &wsConnection{
+		id:        id.String(),
 		conn:      conn,
 		config:    config,
 		writePump: make(chan WsMessage, config.BufferSize),
@@ -128,5 +141,5 @@ func NewWsConnection(conn *websocket.Conn, config *config.WsConfig) WSConnection
 	}
 
 	wsc.setUp()
-	return wsc
+	return wsc, nil
 }

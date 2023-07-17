@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	websocket2 "github.com/gorilla/websocket"
 	"log"
 	"net/http"
@@ -13,12 +13,13 @@ import (
 	redis "online-chat-go/notifications/redis_bus/clustered"
 	"online-chat-go/websocket"
 	"strings"
-	"time"
 )
 
 func main() {
 	cfg := config.ReadConfig()
-	fmt.Println(cfg)
+	cfgJson, _ := json.MarshalIndent(cfg, "", "    ")
+	fmt.Println("started app with config:\n", string(cfgJson))
+
 	wss := websocket.NewWSServer()
 	authorizer := &auth.DummyAuthorizer{}
 	notificationBus := redis.NewClusteredRedisNotificationBus(cfg.NotificationBus.Redis.Cluster)
@@ -40,24 +41,18 @@ func SetUpNotificationHandlers(wss *websocket.WSServer, bus notifications.Notifi
 	})
 }
 
-func MakeWsConnectionHandler(notificationBus notifications.NotificationBus) func(connection websocket.WSConnection) {
-	connId, _ := uuid.NewUUID()
-	return func(wsconn websocket.WSConnection) {
+func MakeWsConnectionHandler(notificationBus notifications.NotificationBus) func(string, websocket.WSConnection) {
+	return func(userId string, wsconn websocket.WSConnection) {
 		for {
 			select {
 			case <-wsconn.Done():
 				return
 
 			case msg := <-wsconn.ReadPump():
-				var i = 0
-				for i < 1000 {
-					if err := notificationBus.Publish(context.Background(), "/to/user/1", msg.Data); err != nil {
-						log.Println("Error publishing message: ", err)
-					}
-					time.Sleep(100 * time.Millisecond)
-					i++
+				if err := notificationBus.Publish(context.Background(), "/to/user/1", msg.Data); err != nil {
+					log.Println("Error publishing message: ", err)
 				}
-				log.Println(fmt.Sprintf("NEW MESSAGE FROM: %s, MSG: %s", connId, msg))
+				log.Println(fmt.Sprintf("new message from user: %s, connection id: %s, msg: %s", userId, wsconn.Id(), string(msg.Data)))
 			}
 		}
 	}
